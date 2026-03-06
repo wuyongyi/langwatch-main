@@ -184,7 +184,7 @@
     "node-fetch-cache": "^5.0.2",
     "nprogress": "^0.2.0",
     "numeral": "^2.0.6",
-    "ohm-js": "^17.1.0",
+    "ohm-js": "^17.5.0",
     "openai": "^5.20.0",
     "papaparse": "^5.4.1",
     "path-to-regexp": "^6.3.0",
