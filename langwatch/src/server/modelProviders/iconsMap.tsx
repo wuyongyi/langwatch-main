@@ -1,0 +1,31 @@
+// biome-ignore lint/style/useImportType: React is needed at runtime for JSX in non-jsdom test environments
+import React from "react";
+import { Anthropic } from "../../components/icons/Anthropic";
+import { AWS } from "../../components/icons/AWS";
+import { Azure } from "../../components/icons/Azure";
+import { Cerebras } from "../../components/icons/Cerebras";
+import { Custom } from "../../components/icons/Custom";
+import { DeepSeek } from "../../components/icons/DeepSeek";
+import { Gemini } from "../../components/icons/Gemini";
+import { GoogleCloud } from "../../components/icons/GoogleCloud";
+import { Groq } from "../../components/icons/Groq";
+import { OpenAI } from "../../components/icons/OpenAI";
+import { Xai } from "../../components/icons/Xai";
+import type { modelProviders } from "./registry";
+
+export const modelProviderIcons: Record<
+  keyof typeof modelProviders,
+  React.ReactNode
+> = {
+  openai: <OpenAI />,
+  azure: <Azure />,
+  anthropic: <Anthropic />,
+  groq: <Groq />,
+  vertex_ai: <GoogleCloud />,
+  gemini: <Gemini />,
+  bedrock: <AWS />,
+  deepseek: <DeepSeek />,
+  custom: <Custom />,
+  xai: <Xai />,
+  cerebras: <Cerebras />,
+};

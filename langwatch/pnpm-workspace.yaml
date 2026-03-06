@@ -1,0 +1,24 @@
+packages:
+  - .
+  - "saas-src/*"
+  - "packages/*"
+
+packageExtensions:
+  bullmq-otel:
+    dependencies:
+      tslib: "^2.6.0"
+
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - '@scarf/scarf'
+  - bcrypt
+  - bufferutil
+  - core-js
+  - cpu-features
+  - esbuild
+  - msgpackr-extract
+  - prisma
+  - protobufjs
+  - sharp
+  - ssh2

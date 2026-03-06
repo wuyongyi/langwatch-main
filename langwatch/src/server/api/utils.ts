@@ -1,0 +1,160 @@
+import {
+  type PrismaClient,
+  ProjectSensitiveDataVisibilityLevel,
+  TeamUserRole,
+} from "@prisma/client";
+import type { Session } from "next-auth";
+import type { Protections } from "../elasticsearch/protections";
+import { hasProjectPermission, isDemoProject } from "./rbac";
+
+export const extractCheckKeys = (
+  inputObject: Record<string, any>,
+): string[] => {
+  const keys: string[] = [];
+
+  const recurse = (obj: Record<string, any>) => {
+    for (const key of Object.keys(obj)) {
+      if (
+        key.startsWith("check_") ||
+        key.startsWith("eval_") ||
+        key.startsWith("evaluation_")
+      ) {
+        keys.push(key);
+      }
+      if (typeof obj[key] === "object" && !Array.isArray(obj[key])) {
+        recurse(obj[key]);
+      }
+    }
+  };
+
+  recurse(inputObject);
+  return keys;
+};
+
+export const flattenObjectKeys = (
+  obj: Record<string, any>,
+  prefix = "",
+): string[] => {
+  return Object.entries(obj).reduce((acc: string[], [key, value]) => {
+    const newKey = prefix ? `${prefix}.${key}` : key;
+
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      // If it's an object (but not null or an array), recurse
+      return [...acc, ...flattenObjectKeys(value, newKey)];
+    } else {
+      // For non-object values (including arrays), add the key
+      return [...acc, newKey];
+    }
+  }, []);
+};
+
+export async function getProtectionsForProject(
+  prisma: PrismaClient,
+  { projectId }: { projectId: string } & Record<string, unknown>,
+): Promise<Protections> {
+  return await getUserProtectionsForProject(
+    { prisma, session: null, publiclyShared: false },
+    { projectId },
+  );
+}
+
+// New function for internal operations that need full access
+export async function getInternalProtectionsForProject(
+  _prisma: PrismaClient,
+  { projectId: _projectId }: { projectId: string } & Record<string, unknown>,
+): Promise<Protections> {
+  return {
+    canSeeCosts: true,
+    canSeeCapturedInput: true,
+    canSeeCapturedOutput: true,
+  };
+}
+
+export async function getUserProtectionsForProject(
+  ctx: {
+    prisma: PrismaClient;
+    session: Session | null;
+    publiclyShared?: boolean;
+  },
+  { projectId }: { projectId: string } & Record<string, unknown>,
+): Promise<Protections> {
+  // TODO(afr): Should we show cost if public? I would assume the opposite.
+  const canSeeCosts =
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+    ctx.publiclyShared ||
+    (await hasProjectPermission(ctx, projectId, "cost:view"));
+
+  const project = await ctx.prisma.project.findUniqueOrThrow({
+    where: { id: projectId, archivedAt: null },
+    select: {
+      capturedInputVisibility: true,
+      capturedOutputVisibility: true,
+    },
+  });
+
+  // For public shares or non-signed in users, we only check project settings
+  if (
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+    ctx.publiclyShared ||
+    !ctx.session?.user?.id ||
+    isDemoProject(projectId, "traces:view")
+  ) {
+    return {
+      canSeeCosts,
+      canSeeCapturedInput:
+        project.capturedInputVisibility ===
+        ProjectSensitiveDataVisibilityLevel.VISIBLE_TO_ALL,
+      canSeeCapturedOutput:
+        project.capturedOutputVisibility ===
+        ProjectSensitiveDataVisibilityLevel.VISIBLE_TO_ALL,
+    };
+  }
+
+  // For signed in users, check their team permissions
+  const teamsWithAccess = await ctx.prisma.teamUser.findMany({
+    where: {
+      userId: ctx.session.user.id,
+      team: {
+        projects: {
+          some: {
+            id: projectId,
+          },
+        },
+      },
+    },
+    select: {
+      role: true,
+    },
+  });
+
+  const isAdminInAnyTeam = teamsWithAccess.some(
+    (team) => team.role === TeamUserRole.ADMIN,
+  );
+  const isMemberInAnyTeam = teamsWithAccess.length > 0;
+
+  const obtainVisibilityLevel = (
+    visibility: ProjectSensitiveDataVisibilityLevel,
+  ): boolean => {
+    switch (true) {
+      case !isMemberInAnyTeam:
+        return false;
+      case visibility === ProjectSensitiveDataVisibilityLevel.REDACTED_TO_ALL:
+        return false;
+      case visibility === ProjectSensitiveDataVisibilityLevel.VISIBLE_TO_ALL:
+        return true;
+      case visibility === ProjectSensitiveDataVisibilityLevel.VISIBLE_TO_ADMIN:
+        return isAdminInAnyTeam;
+      default:
+        console.error("Unexpected state for visibility:", visibility);
+        return false;
+    }
+  };
+
+  return {
+    canSeeCosts,
+    canSeeCapturedInput: obtainVisibilityLevel(project.capturedInputVisibility),
+    canSeeCapturedOutput: obtainVisibilityLevel(
+      project.capturedOutputVisibility,
+    ),
+  };
+}

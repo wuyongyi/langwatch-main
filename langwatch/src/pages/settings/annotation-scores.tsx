@@ -1,0 +1,312 @@
+import {
+  Badge,
+  Box,
+  Button,
+  Card,
+  Heading,
+  HStack,
+  Skeleton,
+  Spacer,
+  Table,
+  Text,
+  VStack,
+} from "@chakra-ui/react";
+import { AnnotationScoreDataType } from "@prisma/client";
+import { useEffect, useState } from "react";
+import { Edit, MoreVertical, Plus, ThumbsUp, Trash } from "react-feather";
+import { NoDataInfoBlock } from "~/components/NoDataInfoBlock";
+import { PageLayout } from "~/components/ui/layouts/PageLayout";
+import { useDrawer } from "~/hooks/useDrawer";
+import { useOrganizationTeamProject } from "~/hooks/useOrganizationTeamProject";
+import { DeleteConfirmationDialog } from "../../components/annotations/DeleteConfirmationDialog";
+import SettingsLayout from "../../components/SettingsLayout";
+import { Link } from "../../components/ui/link";
+import { Menu } from "../../components/ui/menu";
+import { Switch } from "../../components/ui/switch";
+import { toaster } from "../../components/ui/toaster";
+import { Tooltip } from "../../components/ui/tooltip";
+import { withPermissionGuard } from "../../components/WithPermissionGuard";
+import { api } from "../../utils/api";
+
+function AnnotationScorePage() {
+  const { project, hasPermission } = useOrganizationTeamProject();
+
+  const { openDrawer, drawerOpen: isDrawerOpen, closeDrawer } = useDrawer();
+
+  const getAllAnnotationScores = api.annotationScore.getAll.useQuery(
+    {
+      projectId: project?.id ?? "",
+    },
+    { enabled: !!project },
+  );
+
+  const toggleAnnotationScore = api.annotationScore.toggle.useMutation();
+
+  const isAnnotationDrawerOpen = isDrawerOpen("addOrEditAnnotationScore");
+
+  const [isDeleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [scoreToDelete, setScoreToDelete] = useState<string | null>(null);
+
+  const deleteAnnotationScore = api.annotationScore.delete.useMutation();
+
+  useEffect(() => {
+    void getAllAnnotationScores.refetch();
+  }, [isAnnotationDrawerOpen]);
+
+  const handleToggleScore = (scoreId: string, active: boolean) => {
+    toggleAnnotationScore.mutate(
+      { scoreId, active, projectId: project?.id ?? "" },
+      {
+        onSuccess: () => {
+          void getAllAnnotationScores.refetch();
+        },
+        onError: () => {
+          toaster.create({
+            title: "Update score",
+            type: "error",
+            description: "Failed to update score",
+            duration: 6000,
+            meta: {
+              closable: true,
+            },
+          });
+        },
+      },
+    );
+  };
+
+  const handleDeleteScore = (scoreId: string) => {
+    setScoreToDelete(scoreId);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteScore = () => {
+    if (scoreToDelete) {
+      deleteAnnotationScore.mutate(
+        { scoreId: scoreToDelete, projectId: project?.id ?? "" },
+        {
+          onSuccess: () => {
+            void getAllAnnotationScores.refetch();
+            toaster.create({
+              title: "Delete score",
+              type: "success",
+              description: "Score deleted successfully",
+              duration: 6000,
+              meta: {
+                closable: true,
+              },
+            });
+          },
+          onError: () => {
+            toaster.create({
+              title: "Delete score",
+              type: "error",
+              description: "Failed to delete score",
+              duration: 6000,
+              meta: {
+                closable: true,
+              },
+            });
+          },
+        },
+      );
+    }
+    setDeleteDialogOpen(false);
+  };
+
+  return (
+    <SettingsLayout>
+      <VStack gap={6} width="full" align="start">
+        <HStack width="full" marginTop={2}>
+          <Heading as="h2">Annotation Scoring</Heading>
+          <Spacer />
+          <Tooltip
+            content="You need annotations view permissions to add new scores."
+            disabled={hasPermission("annotations:manage")}
+          >
+            <PageLayout.HeaderButton
+              onClick={() => openDrawer("addOrEditAnnotationScore")}
+              disabled={!hasPermission("annotations:manage")}
+            >
+              <Plus /> Add new score metric
+            </PageLayout.HeaderButton>
+          </Tooltip>
+        </HStack>
+        {getAllAnnotationScores.data &&
+        getAllAnnotationScores.data.length == 0 ? (
+          <NoDataInfoBlock
+            title="No scoring setup yet"
+            description="Add new scoring metrics for your annotations."
+            docsInfo={
+              <Text>
+                To learn more about scores and how to use them, please visit our{" "}
+                <Link
+                  color="orange.400"
+                  href="https://docs.langwatch.ai/features/annotations#annotation-scoring"
+                  isExternal
+                >
+                  documentation
+                </Link>
+                .
+              </Text>
+            }
+            icon={<ThumbsUp />}
+          />
+        ) : (
+          <Table.Root variant="line" width="full">
+            <Table.Header>
+              <Table.Row>
+                <Table.ColumnHeader>Name</Table.ColumnHeader>
+                <Table.ColumnHeader>Description</Table.ColumnHeader>
+                <Table.ColumnHeader>Score Type</Table.ColumnHeader>
+                <Table.ColumnHeader>Score Options</Table.ColumnHeader>
+                <Table.ColumnHeader>Enabled</Table.ColumnHeader>
+                <Table.ColumnHeader>Actions</Table.ColumnHeader>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {getAllAnnotationScores.isLoading ? (
+                <>
+                  <Table.Row>
+                    <Table.Cell colSpan={6}>
+                      <Skeleton height="20px" />
+                    </Table.Cell>
+                  </Table.Row>
+                  <Table.Row>
+                    <Table.Cell colSpan={6}>
+                      <Skeleton height="20px" />
+                    </Table.Cell>
+                  </Table.Row>
+                  <Table.Row>
+                    <Table.Cell colSpan={6}>
+                      <Skeleton height="20px" />
+                    </Table.Cell>
+                  </Table.Row>
+                </>
+              ) : (
+                getAllAnnotationScores.data?.map((score) => {
+                  return (
+                    <Table.Row key={score.id}>
+                      <Table.Cell>{score.name}</Table.Cell>
+                      <Table.Cell>{score.description}</Table.Cell>
+                      <Table.Cell width="20%">
+                        <Text lineClamp={1}>
+                          {score.dataType === AnnotationScoreDataType.CHECKBOX
+                            ? "Checkbox"
+                            : "Multiple choice"}
+                        </Text>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <ScoreOptions
+                          options={
+                            Array.isArray(score.options)
+                              ? (score.options as {
+                                  label: string;
+                                  value: number;
+                                }[])
+                              : []
+                          }
+                          dataType={score.dataType ?? ""}
+                        />
+                      </Table.Cell>
+                      <Table.Cell textAlign="center">
+                        <Switch
+                          checked={score.active}
+                          onCheckedChange={() => {
+                            handleToggleScore(score.id, !score.active);
+                          }}
+                        />
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Menu.Root>
+                          <Menu.Trigger asChild>
+                            <Button variant={"ghost"}>
+                              <MoreVertical />
+                            </Button>
+                          </Menu.Trigger>
+                          <Menu.Content>
+                            <Menu.Item
+                              value="edit"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openDrawer("addOrEditAnnotationScore", {
+                                  annotationScoreId: score.id,
+                                  onClose: () => closeDrawer(),
+                                });
+                              }}
+                            >
+                              <Box display="flex" alignItems="center" gap={2}>
+                                <Edit size={14} />
+                                Edit
+                              </Box>
+                            </Menu.Item>
+                            <Menu.Item
+                              value="delete"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteScore(score.id);
+                              }}
+                            >
+                              <Box
+                                display="flex"
+                                alignItems="center"
+                                gap={2}
+                                color="red.600"
+                              >
+                                <Trash size={14} />
+                                Delete
+                              </Box>
+                            </Menu.Item>
+                          </Menu.Content>
+                        </Menu.Root>
+                      </Table.Cell>
+                    </Table.Row>
+                  );
+                })
+              )}
+            </Table.Body>
+          </Table.Root>
+        )}
+      </VStack>
+      <DeleteConfirmationDialog
+        open={isDeleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        onConfirm={confirmDeleteScore}
+      />
+    </SettingsLayout>
+  );
+}
+
+export default withPermissionGuard("annotations:view", {
+  layoutComponent: SettingsLayout,
+})(AnnotationScorePage);
+
+const ScoreOptions = ({
+  options,
+  dataType,
+}: {
+  options: { label: string; value: number }[];
+  dataType: string;
+}) => {
+  return (
+    <>
+      {dataType === "CHECKBOX" ? (
+        <HStack>
+          <HStack flexWrap="wrap" gap={4}>
+            {options.map((option) => (
+              <Badge key={option.value}>{option.label}</Badge>
+            ))}
+          </HStack>
+        </HStack>
+      ) : (
+        <HStack>
+          <HStack flexWrap="wrap" gap={4}>
+            {options.map((option) => (
+              <Badge key={option.value}>{option.label}</Badge>
+            ))}
+          </HStack>
+        </HStack>
+      )}
+    </>
+  );
+};

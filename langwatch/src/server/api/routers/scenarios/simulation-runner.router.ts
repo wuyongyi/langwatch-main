@@ -1,0 +1,115 @@
+/**
+ * Router for running scenarios against targets.
+ */
+
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import {
+  createDataPrefetcherDependencies,
+  prefetchScenarioData,
+} from "~/server/scenarios/execution/data-prefetcher";
+import { getOnPlatformSetId } from "~/server/scenarios/internal-set-id";
+import {
+  generateBatchRunId,
+  scheduleScenarioRun,
+} from "~/server/scenarios/scenario.queue";
+import { createLogger } from "~/utils/logger/server";
+import { checkProjectPermission } from "../../rbac";
+import { projectSchema } from "./schemas";
+
+const logger = createLogger("SimulationRunnerRouter");
+
+/**
+ * Target for scenario simulation.
+ * Extensible: add new types as needed (llm, workflow, etc.)
+ */
+export const simulationTargetSchema = z.object({
+  type: z.enum(["prompt", "http", "code"]),
+  referenceId: z.string(),
+});
+
+export type SimulationTarget = z.infer<typeof simulationTargetSchema>;
+
+const runScenarioSchema = projectSchema.extend({
+  scenarioId: z.string(),
+  target: simulationTargetSchema,
+  /** Optional set ID - defaults to internal on-platform set ID for ad-hoc runs */
+  setId: z.string().optional(),
+});
+
+/**
+ * Simulation runner - executing scenarios against targets.
+ */
+export const simulationRunnerRouter = createTRPCRouter({
+  /**
+   * Run a scenario against a target.
+   *
+   * Schedules the scenario for async execution and returns immediately
+   * with the batch run ID for tracking. Does NOT return success/failure
+   * of scenario execution - that happens asynchronously.
+   */
+  run: protectedProcedure
+    .input(runScenarioSchema)
+    .use(checkProjectPermission("scenarios:manage"))
+    .mutation(async ({ input }) => {
+      const setId = input.setId ?? getOnPlatformSetId(input.projectId);
+      const batchRunId = generateBatchRunId();
+
+      // Validate early - prefetch data to catch configuration errors before scheduling
+      const deps = createDataPrefetcherDependencies();
+      const prefetchResult = await prefetchScenarioData(
+        {
+          projectId: input.projectId,
+          scenarioId: input.scenarioId,
+          setId,
+          batchRunId,
+        },
+        input.target,
+        deps,
+      );
+
+      if (!prefetchResult.success) {
+        logger.warn(
+          {
+            projectId: input.projectId,
+            scenarioId: input.scenarioId,
+            error: prefetchResult.error,
+          },
+          "Scenario validation failed",
+        );
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: prefetchResult.error,
+        });
+      }
+
+      logger.info(
+        {
+          projectId: input.projectId,
+          scenarioId: input.scenarioId,
+          batchRunId,
+        },
+        "Scheduling scenario execution",
+      );
+
+      const job = await scheduleScenarioRun({
+        projectId: input.projectId,
+        scenarioId: input.scenarioId,
+        target: input.target,
+        setId,
+        batchRunId,
+        index: 0,
+      });
+
+      logger.info({ jobId: job.id, batchRunId }, "Scenario scheduled");
+
+      // Return honest response: job was scheduled, not executed
+      return {
+        scheduled: true,
+        jobId: job.id,
+        setId,
+        batchRunId,
+      };
+    }),
+});

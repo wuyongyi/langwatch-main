@@ -1,0 +1,126 @@
+services:
+  app:
+    image: langwatch/langwatch:latest
+    environment:
+      SKIP_ENV_VALIDATION: true
+      DISABLE_PII_REDACTION: true
+      DATABASE_URL: postgresql://prisma:prisma@postgres:5432/mydb?schema=mydb
+      ELASTICSEARCH_NODE_URL: http://opensearch:9200
+      IS_OPENSEARCH: true
+      REDIS_URL: redis://redis:6379
+      LANGWATCH_NLP_SERVICE: http://langwatch_nlp:5561
+      LANGEVALS_ENDPOINT: http://langevals:5562
+      INSTALL_METHOD: docker
+      NODE_ENV: production
+      START_WORKERS: true
+    env_file:
+      - langwatch/.env
+    pull_policy: always
+    ports:
+      - "5560:5560"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+
+  langwatch_nlp:
+    image: langwatch/langwatch_nlp:latest
+    env_file:
+      - langwatch/.env
+    ports:
+      - "5561:5561"
+    restart: always
+    pull_policy: always
+    environment:
+      - LANGWATCH_ENDPOINT=http://app:5560
+      # For when running on Mac OS
+      # - STUDIO_RUNTIME=async
+
+  langevals:
+    image: langwatch/langevals:latest
+    ports:
+      - "5562:5562"
+    restart: always
+    pull_policy: always
+    environment:
+      - DISABLE_EVALUATORS_PRELOAD=true
+
+  postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: mydb
+      POSTGRES_USER: prisma
+      POSTGRES_PASSWORD: prisma
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prisma -d mydb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  opensearch:
+    image: langwatch/opensearch-lite:latest
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      # Performance settings
+      - "OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m -XX:+UseG1GC -XX:-UseSerialGC -XX:G1ReservePercent=25 -XX:+AlwaysPreTouch -XX:InitiatingHeapOccupancyPercent=30"
+      - "cluster.routing.allocation.disk.threshold_enabled=false"
+      - "bootstrap.memory_lock=false" # Changed from true to avoid memory locking warnings
+      # Disk settings
+      - "cluster.routing.allocation.disk.watermark.low=95%"
+      - "cluster.routing.allocation.disk.watermark.high=96%"
+      - "cluster.routing.allocation.disk.watermark.flood_stage=97%"
+      - "cluster.info.update.interval=1m"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=Some-random-password-which-is-greater-than-16-chars-long~
+      # System limits
+      - "node.store.allow_mmap=false"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 || exit 1"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "1.0"
+    restart: always
+    pull_policy: always
+
+volumes:
+  db-data:
+  redis-data:
+  opensearch-data:

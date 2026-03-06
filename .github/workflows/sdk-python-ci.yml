@@ -1,0 +1,97 @@
+name: sdk-python-ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "python-sdk/**"
+      - "!python-sdk/src/langwatch/__version__.py"
+      - ".github/.release-please-manifest.json"
+  pull_request_target:
+    types: [labeled]
+    paths:
+      - "python-sdk/**"
+      - "!python-sdk/src/langwatch/__version__.py"
+      - ".github/.release-please-manifest.json"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    if: >
+      github.event_name != 'pull_request_target'
+      || (github.event.label.name == 'approved-ci'
+          && github.event.pull_request.user.login == 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "python-sdk/uv.lock"
+
+      - name: Setup Python UV
+        working-directory: python-sdk
+        run: uv sync --all-groups --all-extras
+
+      - name: Run unit tests
+        working-directory: python-sdk
+        env:
+          LANGWATCH_DEBUG: "true"
+        run: make test-unit
+
+      - name: Run e2e tests
+        if: github.actor != 'dependabot[bot]' || github.event_name == 'pull_request_target'
+        working-directory: python-sdk
+        env:
+          LANGWATCH_DEBUG: "true"
+          LANGWATCH_API_KEY: ${{ secrets.PYTHON_SDK_LANGWATCH_API_KEY }}
+          LANGWATCH_PROMPT_ID: ${{ secrets.PYTHON_SDK_LANGWATCH_PROMPT_ID }}
+          TEST_EVALUATION_SLUG: "test-evaluation"
+          AZURE_OPENAI_API_KEY: ${{ secrets.PYTHON_SDK_AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.PYTHON_SDK_AZURE_OPENAI_ENDPOINT }}
+          GEMINI_API_KEY: ${{ secrets.PYTHON_SDK_GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.PYTHON_SDK_GROQ_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.PYTHON_SDK_OPENAI_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.PYTHON_SDK_CEREBRAS_API_KEY }}
+        run: |
+          make test-e2e
+          make cli-examples
+          make test-examples
+
+  build:
+    if: >
+      github.event_name != 'pull_request_target'
+      || (github.event.label.name == 'approved-ci'
+          && github.event.pull_request.user.login == 'dependabot[bot]')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "python-sdk/uv.lock"
+
+      - name: Setup Python UV
+        working-directory: python-sdk
+        run: uv sync --all-groups --all-extras && uv pip install build
+
+      - name: Build package
+        working-directory: python-sdk
+        run: uv run python -m build

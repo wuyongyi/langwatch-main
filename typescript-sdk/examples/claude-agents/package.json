@@ -1,0 +1,22 @@
+{
+  "name": "claude-agents-example",
+  "version": "1.0.0",
+  "description": "Examples of instrumenting Claude Code agents with LangWatch",
+  "type": "module",
+  "scripts": {
+    "basic": "tsx src/basic-agent.ts",
+    "code-gen": "tsx src/code-generation-agent.ts",
+    "mcp": "tsx src/mcp-integration.ts"
+  },
+  "keywords": ["langwatch", "claude", "agent", "observability"],
+  "author": "LangWatch",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@opentelemetry/context-async-hooks": "^2.0.1",
+    "@opentelemetry/sdk-node": "^0.203.0",
+    "dotenv": "^16.6.1",
+    "langwatch": "file:../../",
+    "tsx": "^4.19.0"
+  }
+}

@@ -1,0 +1,382 @@
+name: langwatch-app-ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "langwatch/**"
+      - ".github/workflows/langwatch-app-ci.yml"
+      - ".github/.release-please-manifest.json"
+  workflow_dispatch:
+
+env:
+  NODE_ENV: "test"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.24.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: "pnpm"
+          cache-dependency-path: "langwatch/pnpm-lock.yaml"
+
+      - name: Install dependencies
+        working-directory: langwatch
+        run: CI=true pnpm install --frozen-lockfile
+
+      - name: Prepare files
+        working-directory: langwatch
+        run: pnpm start:prepare:files
+
+      - name: Run typecheck
+        working-directory: langwatch
+        run: pnpm typecheck
+
+  test-unit:
+    env:
+      VITEST_MAX_WORKERS: "8" # Cannot use 100% here, it gets parsed as "100" so its actually slower
+      # Required environment variables for integration tests
+      DATABASE_URL: "postgresql://langwatch_ci:ci_password@localhost:5432/langwatch_test"
+      BASE_HOST: "localhost:3000"
+      NEXTAUTH_SECRET: "nextauth-secret-for-ci-testing"
+      NEXTAUTH_URL: "http://localhost:3000"
+      API_TOKEN_JWT_SECRET: "api-jwt-secret-for-ci-testing"
+      ELASTICSEARCH_NODE_URL: "http://localhost:9200"
+      REDIS_URL: "redis://localhost:6379"
+      BUILD_TIME: "true"
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.24.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: "pnpm"
+          cache-dependency-path: "langwatch/pnpm-lock.yaml"
+
+      - name: Install dependencies
+        working-directory: langwatch
+        run: CI=true pnpm install --frozen-lockfile
+
+      - name: Prepare files
+        working-directory: langwatch
+        run: pnpm start:prepare:files
+
+      - name: Run unit tests with coverage
+        id: unit-tests
+        working-directory: langwatch
+        run: |
+          pnpm test:unit --run --bail=1 --coverage --coverage.reporter=lcov --coverage.reporter=text 2>&1 | tee test-output.txt
+          # Extract failures for notification comparison
+          grep -E "FAIL |AssertionError|Expected:|Received:" test-output.txt > test-failures.txt || true
+
+      - name: Notify Slack on new failure
+        if: failure() && github.ref == 'refs/heads/main'
+        env:
+          SLACK_RELEASE_NOTIFICATION_WEBHOOK_URL: ${{ secrets.SLACK_RELEASE_NOTIFICATION_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+        working-directory: langwatch
+        run: bash ../.github/scripts/notify-slack-test-failure.sh test-unit
+
+      - name: Upload unit test coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: langwatch/coverage/lcov.info
+          flags: unit
+          name: unit-tests
+          fail_ci_if_error: false
+
+  test-integration:
+    env:
+      VITEST_MAX_WORKERS: "8" # Cannot use 100% here, it gets parsed as "100" so its actually slower
+      # Required environment variables for integration tests
+      DATABASE_URL: "postgresql://langwatch_ci:ci_password@localhost:5432/langwatch_test"
+      BASE_HOST: "localhost:3000"
+      NEXTAUTH_SECRET: "nextauth-secret-for-ci-testing"
+      NEXTAUTH_URL: "http://localhost:3000"
+      API_TOKEN_JWT_SECRET: "api-jwt-secret-for-ci-testing"
+      ELASTICSEARCH_NODE_URL: "http://localhost:9200"
+      CLICKHOUSE_URL: "http://default:ci_password@localhost:8123/test_langwatch"
+      CI_REDIS_URL: "redis://localhost:6379"
+      CI_CLICKHOUSE_URL: "http://default:ci_password@localhost:8123/test_langwatch"
+      BUILD_TIME: "true"
+      CI: "true"
+
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # ClickHouse is started manually via docker run (after checkout) to mount storage policy config
+      # See "Start ClickHouse with storage policy" step below
+
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+        ports:
+          - 9200:9200
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: false
+          ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+        options: >-
+          --health-cmd "curl -f http://localhost:9200/_cluster/health || exit 1"
+          --health-interval 30s
+          --health-timeout 10s
+          --health-retries 5
+
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: langwatch_ci
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: langwatch_test
+        options: >-
+          --health-cmd "pg_isready -U langwatch_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.24.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: "pnpm"
+          cache-dependency-path: "langwatch/pnpm-lock.yaml"
+
+      - name: Install dependencies
+        working-directory: langwatch
+        run: CI=true pnpm install --frozen-lockfile
+
+      - name: Prepare files
+        working-directory: langwatch
+        run: pnpm start:prepare:files
+
+      - name: Setup database
+        working-directory: langwatch
+        run: pnpm prisma:migrate
+
+      - name: Setup Elasticsearch
+        working-directory: langwatch
+        run: pnpm elastic:migrate
+
+      - name: Install Goose migration tool
+        run: |
+          GOOSE_URL="https://github.com/pressly/goose/releases/download/v3.26.0/goose_linux_x86_64"
+          GOOSE_SHA256="8b3eee9845cd87d827ba1abddb85235fb3684f9fb1666426f647ddd12fd29efe"
+          curl -fsSL "$GOOSE_URL" -o /tmp/goose
+          echo "$GOOSE_SHA256  /tmp/goose" | sha256sum -c - || (rm -f /tmp/goose && exit 1)
+          sudo mv /tmp/goose /usr/local/bin/goose
+          chmod +x /usr/local/bin/goose
+
+      - name: Start ClickHouse with storage policy
+        run: |
+          # Create storage policy config file
+          # Note: Storage policies can only be loaded at server startup, not via SYSTEM RELOAD CONFIG
+          # Each disk must have a unique name AND path - we define 'hot' and 'cold' disks with different paths
+          cat > /tmp/storage_policy.xml << 'EOF'
+          <clickhouse>
+              <storage_configuration>
+                  <disks>
+                      <hot>
+                          <path>/var/lib/clickhouse/hot/</path>
+                      </hot>
+                      <cold>
+                          <path>/var/lib/clickhouse/cold/</path>
+                      </cold>
+                  </disks>
+                  <policies>
+                      <local_primary>
+                          <volumes>
+                              <hot>
+                                  <disk>hot</disk>
+                              </hot>
+                              <cold>
+                                  <disk>cold</disk>
+                              </cold>
+                          </volumes>
+                      </local_primary>
+                  </policies>
+              </storage_configuration>
+          </clickhouse>
+          EOF
+
+          # Start ClickHouse container with config mounted (loads at startup)
+          docker run -d \
+            --name clickhouse \
+            --network host \
+            -e CLICKHOUSE_DB=default \
+            -e CLICKHOUSE_USER=default \
+            -e CLICKHOUSE_PASSWORD=ci_password \
+            -v /tmp/storage_policy.xml:/etc/clickhouse-server/config.d/storage_policy.xml:ro \
+            clickhouse/clickhouse-server:latest
+
+          # Wait for ClickHouse to be ready
+          echo "Waiting for ClickHouse to be ready..."
+          for i in {1..60}; do
+            if docker exec clickhouse clickhouse-client --password=ci_password --query "SELECT 1" 2>/dev/null; then
+              echo "ClickHouse is ready"
+              break
+            fi
+            echo "Attempt $i: Waiting for ClickHouse..."
+            sleep 1
+          done
+
+          # Verify storage policy is available
+          echo "Verifying storage policy..."
+          docker exec clickhouse clickhouse-client --password=ci_password --query "SELECT policy_name, volume_name, disks FROM system.storage_policies WHERE policy_name = 'local_primary'"
+
+      - name: Run ClickHouse migrations
+        working-directory: langwatch
+        run: pnpm clickhouse:migrate
+
+      - name: Run integration tests with coverage
+        id: integration-tests
+        working-directory: langwatch
+        run: |
+          pnpm test:integration --coverage --coverage.reporter=lcov --coverage.reporter=text 2>&1 | tee test-output.txt
+          # Extract failures for notification comparison
+          grep -E "FAIL |AssertionError|Expected:|Received:" test-output.txt > test-failures.txt || true
+
+      - name: Notify Slack on new failure
+        if: failure() && github.ref == 'refs/heads/main'
+        env:
+          SLACK_RELEASE_NOTIFICATION_WEBHOOK_URL: ${{ secrets.SLACK_RELEASE_NOTIFICATION_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+        working-directory: langwatch
+        run: bash ../.github/scripts/notify-slack-test-failure.sh test-integration
+
+      - name: Upload integration test coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: langwatch/coverage/lcov.info
+          flags: integration
+          name: integration-tests
+          fail_ci_if_error: false
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: mongolyy/reviewdog-action-biome@v2
+        with:
+          reporter: github-pr-review
+          fail_level: error
+          biome_flags: "./src"
+
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Disable telemetry and optimize build for CI
+      NEXT_TELEMETRY_DISABLED: 1
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.24.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # Use pnpm store caching instead of node_modules for better cache efficiency
+      - name: Get pnpm store directory
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+        id: pnpm-cache
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('langwatch/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      # Cache Prisma client separately for faster regeneration
+      - name: Cache Prisma client
+        uses: actions/cache@v4
+        with:
+          path: langwatch/node_modules/.prisma
+          key: ${{ runner.os }}-prisma-${{ hashFiles('langwatch/prisma/schema.prisma') }}
+
+      # Cache Next.js build artifacts
+      - name: Cache Next.js
+        uses: actions/cache@v4
+        with:
+          path: |
+            langwatch/.next/cache/webpack
+            langwatch/.next/cache/swc
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('langwatch/pnpm-lock.yaml') }}-${{ hashFiles('langwatch/src/**/*', 'langwatch/next.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('langwatch/pnpm-lock.yaml') }}-
+            ${{ runner.os }}-nextjs-
+
+      # Cache Turbo build outputs
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: langwatch/.turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-
+
+      - name: Install dependencies
+        working-directory: langwatch
+        run: CI=true pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: langwatch
+        run: pnpm build
