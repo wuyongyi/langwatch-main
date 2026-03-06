@@ -45,7 +45,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push LangWatch Docker image (AMD64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -54,7 +54,7 @@ jobs:
             langwatch/langwatch:${{ needs.extract-version.outputs.version }}-amd64
 
       - name: Build and push LangWatch NLP Docker image (AMD64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.langwatch_nlp
@@ -64,7 +64,7 @@ jobs:
             langwatch/langwatch_nlp:${{ needs.extract-version.outputs.version }}-amd64
 
       - name: Build and push LangEvals Docker image (AMD64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.langevals
@@ -91,7 +91,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push LangWatch Docker image (ARM64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -100,7 +100,7 @@ jobs:
             langwatch/langwatch:${{ needs.extract-version.outputs.version }}-arm64
 
       - name: Build and push LangWatch NLP Docker image (ARM64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.langwatch_nlp
@@ -110,7 +110,7 @@ jobs:
             langwatch/langwatch_nlp:${{ needs.extract-version.outputs.version }}-arm64
 
       - name: Build and push LangEvals Docker image (ARM64)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.langevals
