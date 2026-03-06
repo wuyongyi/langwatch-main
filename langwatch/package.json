@@ -57,7 +57,7 @@
     "@ag-grid-community/react": "^32.3.3",
     "@ag-grid-community/styles": "^32.3.3",
     "@ag-ui/core": "~0.0.39",
-    "@ai-sdk/amazon-bedrock": "^3.0.10",
+    "@ai-sdk/amazon-bedrock": "^4.0.77",
     "@ai-sdk/azure": "^2.0.20",
     "@ai-sdk/google": "^2.0.8",
     "@ai-sdk/openai": "^2.0.27",
