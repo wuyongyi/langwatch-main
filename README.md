@@ -16,6 +16,8 @@
 
 <video src="https://github.com/user-attachments/assets/ff49882d-4e9d-4b7c-819b-be690fba9387" autoplay loop muted playsinline width="100%" style="display: block; aspect-ratio: 16 / 9;"></video>
 
+# A langwatch for claude code
+
 ## Why LangWatch?
 
 The platform for LLM evaluations and AI agent testing.
@@ -34,7 +36,9 @@ Built for teams that need regression testing, simulations, and production observ
 - [**Collaboration that doesn't slow shipping**](https://docs.langwatch.ai/features/annotations)
   Review runs, annotate failures, and ship fixes faster. Let domain experts label edge cases with [annotations & queues](https://docs.langwatch.ai/features/annotations), keep prompts in Git with the [GitHub integration](https://docs.langwatch.ai/prompt-management/features/essential/github-integration), and [link prompt versions to traces](https://docs.langwatch.ai/prompt-management/features/advanced/link-to-traces).
 
-LangWatch gives you full visibility into agent behavior and the tools to systematically improve reliability, performance, and cost, while keeping you in control of your AI system. This version is for agents by claude code skills.
+LangWatch gives you full visibility into agent behavior and the tools to systematically improve reliability, performance, and cost, while keeping you in control of your AI system. 
+
+
 
 ## Getting Started
 
@@ -114,6 +118,7 @@ LangWatch builds and maintains several integrations listed below. Our tracing pl
 [Mastra](https://langwatch.ai/docs/integration/typescript/integrations/mastra) ·
 [CrewAI](https://langwatch.ai/docs/integration/python/integrations/crewai) ·
 [Google ADK](https://langwatch.ai/docs/integration/python/integrations/google-ai)
+[Claude Code](https://code.claude.com/)
 
 **Model Providers:**  
 [OpenAI](https://langwatch.ai/docs/integration/python/integrations/openai) ·
