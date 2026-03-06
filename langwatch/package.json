@@ -223,7 +223,7 @@
     "slugify": "^1.6.6",
     "stripe": "^15.2.0",
     "superjson": "^1.13.1",
-    "tiktoken": "^1.0.18",
+    "tiktoken": "^1.0.22",
     "ts-pattern": "^5.9.0",
     "undici": "^7.19.2",
     "use-debounce": "^10.0.0",
