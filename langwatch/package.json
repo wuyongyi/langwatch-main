@@ -113,7 +113,7 @@
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "@prisma/client": "5.7.0",
     "@react-email/button": "^0.2.1",
-    "@react-email/components": "^0.0.36",
+    "@react-email/components": "^1.0.8",
     "@react-email/container": "^0.0.10",
     "@react-email/heading": "^0.0.15",
     "@react-email/html": "^0.0.6",
